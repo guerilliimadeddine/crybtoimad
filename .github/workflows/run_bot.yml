@@ -3,13 +3,13 @@ name: Run Crypto Bot
 on:
   schedule:
     - cron: '*/10 * * * *' # يعمل تلقائياً كل 10 دقائق
-  workflow_dispatch: # يتيح لك تشغيله يدوياً متى شئت للتجربة
+  workflow_dispatch: # يتيح لك التشغيل اليدوي بضغط زر
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # مهم جداً للسماح للسكربت بتحديث ملف الأسعار تلقائياً
+      contents: write # منح صلاحية تعديل وحفظ الملفات في المستودع
 
     steps:
       - name: Checkout repository
