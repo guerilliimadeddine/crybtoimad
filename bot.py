@@ -9,7 +9,8 @@ THRESHOLD_PERCENT = 0.1
 
 HEADERS = {
     "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,"
+        " like Gecko) Chrome/120.0.0.0 Safari/537.36"
     )
 }
 
@@ -24,29 +25,9 @@ def send_telegram_message(message):
 
 
 def fetch_crypto_prices():
-  # المحاولة الأولى عبر CoinCap (تُرجع أفضل 100 عملة بدقة)
+  # استخدام Binance API المباشر (سريع، مجاني، ولا يحظر سيرفرات غيتهاب)
+  url = "https://api.binance.com/api/v3/ticker/price"
   try:
-    url = "https://api.coincap.io/v2/assets?limit=100"
-    res = requests.get(url, headers=HEADERS, timeout=15)
-    print(f"CoinCap Status Code: {res.status_code}")
-    if res.status_code == 200:
-      data = res.json().get("data", [])
-      if len(data) > 20:  # التأكد من أنها جلبَت قائمة كاملة وليست جزئية
-        prices = {}
-        for coin in data:
-          symbol = coin.get("symbol", "").upper()
-          price = coin.get("priceUsd")
-          if symbol and price:
-            prices[symbol] = float(price)
-        if prices:
-          print(f"✅ تم بنجاح جلب {len(prices)} عملة من CoinCap.")
-          return prices
-  except Exception as e:
-    print(f"خطأ في CoinCap: {e}")
-
-  # البديل الاحتياطي المضمون: Binance (يجلب جميع أزواج USDT المتاحة)
-  try:
-    url = "https://api.binance.com/api/v3/ticker/price"
     res = requests.get(url, headers=HEADERS, timeout=15)
     print(f"Binance Status Code: {res.status_code}")
     if res.status_code == 200:
@@ -54,14 +35,18 @@ def fetch_crypto_prices():
       prices = {}
       for coin in data:
         symbol = coin.get("symbol", "")
+        # نأخذ العملات المرتبطة بـ USDT لجلب كل العملات الكبرى والمعروفة
         if symbol.endswith("USDT"):
           clean_symbol = symbol.replace("USDT", "")
-          prices[clean_symbol] = float(coin.get("price", 0))
+          price = float(coin.get("price", 0))
+          if price > 0:
+            prices[clean_symbol] = price
+
       if prices:
         print(f"✅ تم بنجاح جلب {len(prices)} عملة من Binance.")
         return prices
   except Exception as e:
-    print(f"خطأ في Binance: {e}")
+    print(f"خطأ في الاتصال بـ Binance: {e}")
 
   return {}
 
@@ -77,10 +62,10 @@ def check_price_spikes():
 
   new_prices = fetch_crypto_prices()
   if not new_prices:
-    print("❌ فشل جلب الأسعار تماماً من كافة المصادر!")
+    print("❌ فشل جلب الأسعار تماماً!")
     return
 
-  print(f"إجمالي العملات المخزنة في الدورة الحالية: {len(new_prices)}")
+  print(f"إجمالي العملات المخزنة حالياً: {len(new_prices)}")
 
   alerts = []
   if old_prices:
