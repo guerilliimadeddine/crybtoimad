@@ -5,6 +5,9 @@ on:
     - cron: '*/10 * * * *'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   run-bot:
     runs-on: ubuntu-latest
@@ -20,19 +23,5 @@ jobs:
       - name: Install dependencies
         run: pip install requests
 
-      - name: Restore cached prices
-        uses: actions/cache@v4
-        with:
-          path: prices_cache.json
-          key: crypto-cache-${{ github.run_number }}
-          restore-keys: |
-            crypto-cache-
-
       - name: Run script
         run: python bot.py
-
-      - name: Save prices cache
-        uses: actions/cache@v4
-        with:
-          path: prices_cache.json
-          key: crypto-cache-${{ github.run_number }}
