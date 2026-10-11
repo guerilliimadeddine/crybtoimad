@@ -5,7 +5,8 @@ import requests
 TELEGRAM_TOKEN = "8748765412:AAG030Thdv4jFUcZ2LUT-Hso56pa2ldtF_s"
 CHAT_ID = "1991436401"
 CACHE_FILE = "prices_cache.json"
-THRESHOLD_PERCENT = 0.1
+
+MIN_PRICE_FILTER = 0.0001
 
 HEADERS = {
     "User-Agent": (
@@ -24,7 +25,69 @@ def send_telegram_message(message):
     print(f"خطأ في إرسال الرسالة: {e}")
 
 
-def fetch_crypto_prices():
+def calculate_rsi_history(closes, period=14):
+  """حساب RSI الحالي والسابق للتأكد من أنه في حالة صعود"""
+  if len(closes) < period + 2:
+    return 50.0, 50.0
+
+  rsis = []
+  for idx in range(period + 1, len(closes) + 1):
+    sub_closes = closes[:idx]
+    gains, losses = [], []
+    for i in range(1, len(sub_closes)):
+      diff = sub_closes[i] - sub_closes[i - 1]
+      if diff >= 0:
+        gains.append(diff)
+        losses.append(0)
+      else:
+        gains.append(0)
+        losses.append(abs(diff))
+
+    avg_gain = sum(gains[-period:]) / period
+    avg_loss = sum(losses[-period:]) / period
+
+    if avg_loss == 0:
+      rsis.append(100.0)
+    else:
+      rs = avg_gain / avg_loss
+      rsis.append(100 - (100 / (1 + rs)))
+
+  return rsis[-1], rsis[-2]
+
+
+def fetch_advanced_strategy(symbol):
+  """جلب البيانات الشمعية وحساب MA 99, المقاومة, و RSI"""
+  url = f"https://api.binance.com/api/v3/klines?symbol={symbol}USDT&interval=1h&limit=110"
+  try:
+    res = requests.get(url, headers=HEADERS, timeout=6)
+    if res.status_code == 200:
+      data = res.json()
+      closes = [float(candle[4]) for candle in data]
+      highs = [float(candle[2]) for candle in data]
+      lows = [float(candle[3]) for candle in data]
+
+      if len(closes) >= 99:
+        current_price = closes[-1]
+        rsi_current, rsi_prev = calculate_rsi_history(closes, 14)
+        ma_99 = sum(closes[-99:]) / 99
+        resistance = max(highs[-40:])
+        support = min(lows[-40:])
+
+        return {
+            "price": current_price,
+            "rsi_current": rsi_current,
+            "rsi_prev": rsi_prev,
+            "resistance": resistance,
+            "support": support,
+            "ma_99": ma_99,
+        }
+  except Exception:
+    pass
+  return None
+
+
+def check_strategy_signals():
+  # قائمة ضخمة تضم 150 عملة رقمية
   symbols = [
       "BTC",
       "ETH",
@@ -153,20 +216,12 @@ def fetch_crypto_prices():
       "LUCE",
       "ACT",
       "CHILLGUY",
-      "USDC",
-      "USDT",
-      "DAI",
-      "FDUSD",
-      "TUSD",
-      "PYUSD",
       "JUP",
       "PYTH",
       "W",
       "JTO",
       "MANTA",
       "ALT",
-      "PIXEL",
-      "PORTAL",
       "XAI",
       "ACE",
       "NFP",
@@ -174,130 +229,58 @@ def fetch_crypto_prices():
       "XEM",
       "LSK",
       "ARDR",
-      "STRAT",
-      "BTS",
-      "PIVX",
       "ZEN",
       "XVG",
       "SYS",
       "FUN",
       "STORJ",
-      "GNT",
       "ANT",
       "RLC",
       "CVC",
       "LOOM",
       "SNT",
       "POWR",
-      "MAN",
-      "DNT",
-      "REQ",
-      "RDN",
-      "XRP",
-      "POLY",
-      "GTO",
-      "OST",
-      "CDT",
-      "OCN",
-      "BNT",
-      "QSP",
-      "XZC",
-      "DATA",
-      "STORM",
-      "MFT",
-      "ADD",
-      "VTHO",
-      "GO",
-      "TNB",
-      "NAV",
-      "EDO",
-      "CLN",
-      "WPR",
-      "VIB",
-      "PIVX",
-      "IOST",
       "BLZ",
-      "SYS",
-      "HOT",
-      "QLC",
-      "NPXS",
-      "KEY",
-      "DOCK",
-      "MITH",
-      "MCO",
-      "STPT",
   ]
 
-  prices = {}
-  for sym in symbols:
-    try:
-      res = requests.get(
-          f"https://api.coinbase.com/v2/prices/{sym}-USD/spot",
-          headers=HEADERS,
-          timeout=3,
-      )
-      if res.status_code == 200:
-        data = res.json()
-        price = float(data.get("data", {}).get("amount", 0))
-        if price > 0:
-          prices[sym] = price
-    except Exception:
-      pass
-
-  if prices:
-    print(f"✅ تم بنجاح جلب {len(prices)} عملة من Coinbase.")
-    return prices
-
-  return {}
-
-
-def check_price_spikes():
-  old_prices = {}
-  if os.path.exists(CACHE_FILE):
-    try:
-      with open(CACHE_FILE, "r") as f:
-        old_prices = json.load(f)
-    except Exception:
-      old_prices = {}
-
-  new_prices = fetch_crypto_prices()
-  if not new_prices:
-    print("❌ فشل جلب الأسعار تماماً!")
-    return
-
-  print(f"إجمالي العملات المخزنة حالياً: {len(new_prices)}")
-
   alerts = []
-  if old_prices:
-    for symbol, price in new_prices.items():
-      if symbol in old_prices:
-        old_price = old_prices[symbol]
-        if old_price > 0:
-          change_pct = ((price - old_price) / old_price) * 100
-          if abs(change_pct) >= THRESHOLD_PERCENT:
-            direction = "🚀 صعود" if change_pct > 0 else "🔻 هبوط"
-            emoji = "🟢" if change_pct > 0 else "🔴"
-            alerts.append(
-                f"{emoji} **{symbol}**: {direction} بنسبة `{change_pct:+.2f}%`\nالسعر"
-                f" الحالي: `${price:,.4f}`"
-            )
 
-  # حفظ الأسعار الجديدة ليرفعها الـ Git تلقائياً
-  with open(CACHE_FILE, "w") as f:
-    json.dump(new_prices, f, indent=4)
-  print(f"تم تحديث وحفظ ملف {CACHE_FILE}")
+  for sym in symbols:
+    data = fetch_advanced_strategy(sym)
+    if data and data["price"] >= MIN_PRICE_FILTER:
+      price = data["price"]
+      resistance = data["resistance"]
+      rsi_curr = data["rsi_current"]
+      rsi_prev = data["rsi_prev"]
+      ma_99 = data["ma_99"]
 
-  # إرسال التنبيهات مقسمة إلى عدة رسائل (كل رسالة تحتوي على 10 تنبيهات كحد أقصى)
+      # الشروط الاستراتيجية
+      is_near_resistance = price >= (resistance * 0.99)
+      is_rsi_rising = rsi_curr > rsi_prev
+      is_above_ma99 = price > ma_99
+
+      if is_near_resistance and is_rsi_rising and is_above_ma99:
+        alert_msg = (
+            f"🎯 **فرصة اختراق مؤكدة (شروط مطابقة)**\n"
+            f"🟢 **العملة**: `{sym}`\n"
+            f"💵 السعر الحالي: `${price:,.4f}`\n"
+            f"⚔️ خط المقاومة: `${resistance:,.4f}`\n"
+            f"📈 **MA 99**: `${ma_99:,.4f}` (السعر فوق المتوسط)\n"
+            f"📊 **RSI الصاعد**: `{rsi_curr:.1f}` (كان `{rsi_prev:.1f}` ↗️)\n"
+            f"🛡️ الدعم القريب: `${data['support']:,.4f}`"
+        )
+        alerts.append(alert_msg)
+
   if alerts:
-    batch_size = 10
-    for i in range(0, len(alerts), batch_size):
-      batch = alerts[i : i + batch_size]
-      msg = (
-          f"🚨 **تنبيه حركة الأسعار (الجزء {i // batch_size + 1})**\n\n"
-          + "\n\n".join(batch)
-      )
+    for msg in alerts:
       send_telegram_message(msg)
+      print("تم إرسال إشارة استراتيجية متقدمة بنجاح.")
+  else:
+    print(
+        "لا توجد عملات تطابق شروط المقاومة + صعود RSI + فوق MA 99 في هذه"
+        " الدورة."
+    )
 
 
 if __name__ == "__main__":
-  check_price_spikes()
+  check_strategy_signals()
