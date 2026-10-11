@@ -1,12 +1,13 @@
 import json
 import os
 import subprocess
+import time
 import requests
 
 TELEGRAM_TOKEN = "8748765412:AAG030Thdv4jFUcZ2LUT-Hso56pa2ldtF_s"
 CHAT_ID = "1991436401"
 CACHE_FILE = "prices_cache.json"
-THRESHOLD_PERCENT = 0.1  # تم تعديل النسبة لتصبح 0.1%
+THRESHOLD_PERCENT = 0.1  # 0.1%
 
 
 def send_telegram_message(message):
@@ -15,7 +16,7 @@ def send_telegram_message(message):
   try:
     requests.post(url, json=payload, timeout=10)
   except Exception as e:
-    print(f"خطأ في إرسال الرسالة: {e}")
+    print(f"خطأ في إرسال الرسالة إلى تيليجرام: {e}")
 
 
 def git_commit_and_push():
@@ -29,11 +30,60 @@ def git_commit_and_push():
         "bot@users.noreply.github.com",
     ])
     subprocess.run(["git", "add", CACHE_FILE])
-    subprocess.run(["git", "commit", "-m", "Update price cache [skip ci]"])
-    subprocess.run(["git", "push"])
-    print("تم تحديث وحفظ الملف في المستودع بنجاح.")
+
+    status = subprocess.run(
+        ["git", "status", "--porcelain"], capture_output=True, text=True
+    )
+    if status.stdout.strip():
+      subprocess.run([
+          "git",
+          "commit",
+          "-m",
+          "Update price cache [skip ci]",
+      ])
+      push_res = subprocess.run(
+          ["git", "push", "origin", "HEAD"], capture_output=True, text=True
+      )
+      print(f"نتيجة الـ Push: {push_res.stdout} {push_res.stderr}")
+    else:
+      print("لا توجد تغييرات جديدة في الأسعار لحفظها.")
   except Exception as e:
-    print(f"خطأ أثناء تحديث الـ Git: {e}")
+    print(f"خطأ في الـ Git: {e}")
+
+
+def fetch_crypto_prices():
+  # محاولة أولى من CoinCap مع إمكانية المحاولة 3 مرات
+  for attempt in range(3):
+    try:
+      url = "https://api.coincap.io/v2/assets?limit=100"
+      res = requests.get(url, timeout=10)
+      if res.status_code == 200:
+        data = res.json().get("data", [])
+        return {
+            coin["symbol"].upper(): float(coin["priceUsd"]) for coin in data
+        }
+    except Exception as e:
+      print(f"محاولة CoinCap رقم {attempt + 1} فشلت: {e}")
+      time.sleep(2)
+
+  # بديل مضمون في حال فشل CoinCap (استخدام Binance API)
+  print("جاري التحويل إلى المصدر البديل (Binance API)...")
+  try:
+    url = "https://api.binance.com/api/v3/ticker/price"
+    res = requests.get(url, timeout=10)
+    if res.status_code == 200:
+      data = res.json()
+      prices = {}
+      for coin in data:
+        symbol = coin["symbol"]
+        if symbol.endswith("USDT"):
+          clean_symbol = symbol.replace("USDT", "")
+          prices[clean_symbol] = float(coin["price"])
+      return prices
+  except Exception as e:
+    print(f"فشل الاتصال بالمصدر البديل أيضاً: {e}")
+
+  return {}
 
 
 def check_price_spikes():
@@ -42,54 +92,46 @@ def check_price_spikes():
     try:
       with open(CACHE_FILE, "r") as f:
         old_prices = json.load(f)
-    except Exception:
-      old_prices = {}
+      print(f"تم قراءة الأسعار القديمة. عدد العملات: {len(old_prices)}")
+    except Exception as e:
+      print(f"خطأ في قراءة الكاش: {e}")
 
-  try:
-    url = "https://api.coincap.io/v2/assets?limit=100"
-    response = requests.get(url, timeout=15)
-    if response.status_code != 200:
-      return
+  new_prices = fetch_crypto_prices()
+  if not new_prices:
+    print("لم نتمكن من جلب الأسعار الحالية بسبب انقطاع الخدمة من المصدر.")
+    return
 
-    coins = response.json().get("data", [])
-    new_prices = {}
-    alerts = []
+  alerts = []
+  for symbol, price in new_prices.items():
+    if symbol in old_prices:
+      old_price = old_prices[symbol]
+      if old_price > 0:
+        change_pct = ((price - old_price) / old_price) * 100
+        if abs(change_pct) >= THRESHOLD_PERCENT:
+          direction = "🚀 صعود" if change_pct > 0 else "🔻 هبوط"
+          emoji = "🟢" if change_pct > 0 else "🔴"
+          alerts.append(
+              f"{emoji} **{symbol}**: {direction} بنسبة `{change_pct:+.2f}%`\nالسعر"
+              f" الحالي: `${price:,.4f}` (السابق: `${old_price:,.4f}`)"
+          )
 
-    for coin in coins:
-      symbol = coin.get("symbol", "").upper()
-      name = coin.get("name", "")
-      price = float(coin.get("priceUsd", 0))
-      new_prices[symbol] = price
+  # حفظ الأسعار الجديدة في ملف JSON
+  with open(CACHE_FILE, "w") as f:
+    json.dump(new_prices, f, indent=4)
+  print("تم حفظ الأسعار الجديدة في ملف prices_cache.json")
 
-      if symbol in old_prices:
-        old_price = old_prices[symbol]
-        if old_price > 0:
-          change_pct = ((price - old_price) / old_price) * 100
-          # التحقق مما إذا تجاوز التغير النسبة الجديدة 0.1%
-          if abs(change_pct) >= THRESHOLD_PERCENT:
-            direction = "🚀 صعود" if change_pct > 0 else "🔻 هبوط"
-            emoji = "🟢" if change_pct > 0 else "🔴"
-            alerts.append(
-                f"{emoji} **{name} ({symbol})**: {direction} بنسبة"
-                f" `{change_pct:+.2f}%`\nالسعر الحالي: `${price:,.4f}`"
-            )
+  # رفع الملف إلى المستودع
+  git_commit_and_push()
 
-    # حفظ الأسعار الجديدة محلياً
-    with open(CACHE_FILE, "w") as f:
-      json.dump(new_prices, f, indent=4)
-
-    # رفع الملف المحدث تلقائياً إلى المستودع
-    git_commit_and_push()
-
-    if alerts:
-      msg = (
-          "🚨 **تنبيه حركة الأسعار (بنسبة 0.1% أو أكثر)**\n\n"
-          + "\n\n".join(alerts)
-      )
-      send_telegram_message(msg)
-
-  except Exception as e:
-    print(f"حدث خطأ: {e}")
+  # إرسال التنبيهات
+  if alerts:
+    msg = (
+        "🚨 **تنبيه حركة الأسعار (بنسبة 0.1% أو أكثر)**\n\n"
+        + "\n\n".join(alerts[:15])
+    )
+    send_telegram_message(msg)
+  else:
+    print("لا توجد تغيرات تتجاوز 0.1% مقارنة بالفحص السابق.")
 
 
 if __name__ == "__main__":
