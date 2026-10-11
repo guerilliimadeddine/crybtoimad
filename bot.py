@@ -3,7 +3,7 @@ import os
 import subprocess
 import requests
 
-TELEGRAM_TOKEN = "8748765412:AA6030Thdv4jFUcZ2LUT-Hso56pa2lDtF_s"
+TELEGRAM_TOKEN = "8748765412:AAG030Thdv4jFUcZ2LUT-Hso56pa2ldtF_s"
 CHAT_ID = "1991436401"
 CACHE_FILE = "prices_cache.json"
 THRESHOLD_PERCENT = 0.1  # تم تعديل النسبة لتصبح 0.1%
