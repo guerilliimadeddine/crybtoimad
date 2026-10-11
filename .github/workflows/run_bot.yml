@@ -1,16 +1,13 @@
-name: Run Crypto Bot
+name: Crypto Price Alert Bot
 
 on:
   schedule:
-    - cron: '*/10 * * * *' # يعمل تلقائياً كل 10 دقائق
+    - cron: '*/10 * * * *' # يعمل تلقائياً كل 10-15 دقيقة
   workflow_dispatch: # يتيح لك التشغيل اليدوي بضغط زر
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write # منح صلاحية تعديل وحفظ الملفات في المستودع
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -23,11 +20,13 @@ jobs:
       - name: Install dependencies
         run: pip install requests
 
+      - name: Restore/Save Price Cache
+        uses: actions/cache@v4
+        with:
+          path: prices_cache.json
+          key: crypto-price-cache-${{ github.run_id }}
+          restore-keys: |
+            crypto-price-cache-
+
       - name: Run script
         run: python bot.py
-
-      - name: Commit and push updated prices
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          commit_message: 'Update prices.json automatically'
-          file_pattern: prices.json
