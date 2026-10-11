@@ -1,12 +1,10 @@
 import json
 import os
-import time
 import requests
 
 TELEGRAM_TOKEN = "8748765412:AAG030Thdv4jFUcZ2LUT-Hso56pa2ldtF_s"
 CHAT_ID = "1991436401"
 CACHE_FILE = "prices_cache.json"
-HEARTBEAT_FILE = "heartbeat_cache.json"  # ملف لتتبع وقت آخر رسالة دورية للبيتكوين
 
 MIN_PRICE_FILTER = 0.0001
 
@@ -27,11 +25,21 @@ def send_telegram_message(message):
     print(f"خطأ في إرسال الرسالة: {e}")
 
 
+def get_btc_spot_price():
+  """جلب السعر الفوري للبيتكوين بسرعة فائقة ودون أخطاء"""
+  url = "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT"
+  try:
+    res = requests.get(url, headers=HEADERS, timeout=5)
+    if res.status_code == 200:
+      return float(res.json().get("price", 0))
+  except Exception:
+    pass
+  return 0
+
+
 def calculate_rsi_history(closes, period=14):
-  """حساب RSI الحالي والسابق للتأكد من أنه في حالة صعود"""
   if len(closes) < period + 2:
     return 50.0, 50.0
-
   rsis = []
   for idx in range(period + 1, len(closes) + 1):
     sub_closes = closes[:idx]
@@ -44,21 +52,17 @@ def calculate_rsi_history(closes, period=14):
       else:
         gains.append(0)
         losses.append(abs(diff))
-
     avg_gain = sum(gains[-period:]) / period
     avg_loss = sum(losses[-period:]) / period
-
     if avg_loss == 0:
       rsis.append(100.0)
     else:
       rs = avg_gain / avg_loss
       rsis.append(100 - (100 / (1 + rs)))
-
   return rsis[-1], rsis[-2]
 
 
 def fetch_advanced_strategy(symbol):
-  """جلب البيانات الشمعية وحساب MA 99, المقاومة, و RSI"""
   url = f"https://api.binance.com/api/v3/klines?symbol={symbol}USDT&interval=1h&limit=110"
   try:
     res = requests.get(url, headers=HEADERS, timeout=6)
@@ -88,34 +92,18 @@ def fetch_advanced_strategy(symbol):
   return None
 
 
-def check_heartbeat(btc_price):
-  """إرسال رسالة اطمئنان وسعر البيتكوين كل 30 دقيقة تقريباً"""
-  current_time = time.time()
-  last_time = 0
-
-  if os.path.exists(HEARTBEAT_FILE):
-    try:
-      with open(HEARTBEAT_FILE, "r") as f:
-        data = json.load(f)
-        last_time = data.get("last_sent", 0)
-    except Exception:
-      pass
-
-  # 30 دقيقة = 1800 ثانية
-  if current_time - last_time >= 1800:
+def check_strategy_signals():
+  # === 1. إرسال رسالة الاطمئنان وسعر البيتكوين الفوري أولاً للتأكد من عمل البوت ===
+  btc_price = get_btc_spot_price()
+  if btc_price > 0:
     heartbeat_msg = (
         f"🟢 **البوت يعمل بنجاح (فحص دوري)**\n"
         f"👑 **سعر البيتكوين (BTC)**: `${btc_price:,.2f}`\n"
-        f"⚡ *النظام متصل ويراقب السوق بدقة.*"
+        f"⚡ *النظام متصل ويراقب 150 عملة بدقة.*"
     )
     send_telegram_message(heartbeat_msg)
 
-    # تحديث وقت آخر رسالة
-    with open(HEARTBEAT_FILE, "w") as f:
-      json.dump({"last_sent": current_time}, f)
-
-
-def check_strategy_signals():
+  # === 2. قائمة الـ 150 عملة للفحص الاستراتيجي ===
   symbols = [
       "BTC",
       "ETH",
@@ -272,25 +260,18 @@ def check_strategy_signals():
   ]
 
   alerts = []
-  btc_current_price = 0
 
   for sym in symbols:
     data = fetch_advanced_strategy(sym)
     if data and data["price"] >= MIN_PRICE_FILTER:
       price = data["price"]
-
-      # حفظ سعر البيتكوين لاستخدامه في رسالة الاطمئنان
-      if sym == "BTC":
-        btc_current_price = price
-
       resistance = data["resistance"]
       rsi_curr = data["rsi_current"]
-      rsi_prev = data["rsi_prev"]
+      rsi_prev = data["rsi_current"] if "rsi_prev" in data else data["rsi_prev"]
       ma_99 = data["ma_99"]
 
-      # الشروط الاستراتيجية
       is_near_resistance = price >= (resistance * 0.99)
-      is_rsi_rising = rsi_curr > rsi_prev
+      is_rsi_rising = data["rsi_current"] > data["rsi_prev"]
       is_above_ma99 = price > ma_99
 
       if is_near_resistance and is_rsi_rising and is_above_ma99:
@@ -300,25 +281,16 @@ def check_strategy_signals():
             f"💵 السعر الحالي: `${price:,.4f}`\n"
             f"⚔️ خط المقاومة: `${resistance:,.4f}`\n"
             f"📈 **MA 99**: `${ma_99:,.4f}` (السعر فوق المتوسط)\n"
-            f"📊 **RSI الصاعد**: `{rsi_curr:.1f}` (كان `{rsi_prev:.1f}` ↗️)\n"
+            f"📊 **RSI الصاعد**: `{data['rsi_current']:.1f}` (كان"
+            f" `{data['rsi_prev']:.1f}` ↗️)\n"
             f"🛡️ الدعم القريب: `${data['support']:,.4f}`"
         )
         alerts.append(alert_msg)
 
-  # فحص إرسال رسالة الاطمئنان الدورية للبيتكوين كل نصف ساعة
-  if btc_current_price > 0:
-    check_heartbeat(btc_current_price)
-
-  # إرسال تنبيهات الصفقات إذا وجدت
   if alerts:
     for msg in alerts:
       send_telegram_message(msg)
-      print("تم إرسال إشارة استراتيجية متقدمة بنجاح.")
-  else:
-    print(
-        "لا توجد عملات تطابق شروط المقاومة + صعود RSI + فوق MA 99 في هذه"
-        " الدورة."
-    )
+      print("تم إرسال إشارة استراتيجية بنجاح.")
 
 
 if __name__ == "__main__":
