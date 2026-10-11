@@ -25,7 +25,6 @@ def send_telegram_message(message):
 
 
 def fetch_crypto_prices():
-  # قائمة موسعة تضم 200 عملة رقمية
   symbols = [
       "BTC",
       "ETH",
@@ -288,12 +287,16 @@ def check_price_spikes():
     json.dump(new_prices, f, indent=4)
   print(f"تم تحديث وحفظ ملف {CACHE_FILE}")
 
+  # إرسال التنبيهات مقسمة إلى عدة رسائل (كل رسالة تحتوي على 10 تنبيهات كحد أقصى)
   if alerts:
-    msg = (
-        "🚨 **تنبيه حركة الأسعار (بنسبة 0.1% أو أكثر)**\n\n"
-        + "\n\n".join(alerts[:15])
-    )
-    send_telegram_message(msg)
+    batch_size = 10
+    for i in range(0, len(alerts), batch_size):
+      batch = alerts[i : i + batch_size]
+      msg = (
+          f"🚨 **تنبيه حركة الأسعار (الجزء {i // batch_size + 1})**\n\n"
+          + "\n\n".join(batch)
+      )
+      send_telegram_message(msg)
 
 
 if __name__ == "__main__":
