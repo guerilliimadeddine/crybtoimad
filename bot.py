@@ -24,46 +24,44 @@ def send_telegram_message(message):
 
 
 def fetch_crypto_prices():
-  # استخدام CoinGecko API (مجاني ولا يحظر خوادم غيتهاب غالباً)
-  url = (
-      "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,binancecoin,solana,ripple,cardano,dogecoin,avalanche-2,tron,chainlink,polkadot,polygon-ecosystem-token,uniswap,litecoin,near,aptos,cosmos,stellar,filecoin,hedera&vs_currencies=usd"
-  )
+  # المحاولة الأولى عبر CoinCap (تُرجع أفضل 100 عملة بدقة)
   try:
+    url = "https://api.coincap.io/v2/assets?limit=100"
     res = requests.get(url, headers=HEADERS, timeout=15)
-    print(f"CoinGecko Status Code: {res.status_code}")
+    print(f"CoinCap Status Code: {res.status_code}")
+    if res.status_code == 200:
+      data = res.json().get("data", [])
+      if len(data) > 20:  # التأكد من أنها جلبَت قائمة كاملة وليست جزئية
+        prices = {}
+        for coin in data:
+          symbol = coin.get("symbol", "").upper()
+          price = coin.get("priceUsd")
+          if symbol and price:
+            prices[symbol] = float(price)
+        if prices:
+          print(f"✅ تم بنجاح جلب {len(prices)} عملة من CoinCap.")
+          return prices
+  except Exception as e:
+    print(f"خطأ في CoinCap: {e}")
+
+  # البديل الاحتياطي المضمون: Binance (يجلب جميع أزواج USDT المتاحة)
+  try:
+    url = "https://api.binance.com/api/v3/ticker/price"
+    res = requests.get(url, headers=HEADERS, timeout=15)
+    print(f"Binance Status Code: {res.status_code}")
     if res.status_code == 200:
       data = res.json()
       prices = {}
-      # ربط الأسماء برموزها المعروفة
-      mapping = {
-          "bitcoin": "BTC",
-          "ethereum": "ETH",
-          "binancecoin": "BNB",
-          "solana": "SOL",
-          "ripple": "XRP",
-          "cardano": "ADA",
-          "dogecoin": "DOGE",
-          "avalanche-2": "AVAX",
-          "tron": "TRX",
-          "chainlink": "LINK",
-          "polkadot": "DOT",
-          "polygon-ecosystem-token": "POL",
-          "uniswap": "UNI",
-          "litecoin": "LTC",
-          "near": "NEAR",
-          "aptos": "APT",
-          "cosmos": "ATOM",
-          "stellar": "XLM",
-          "filecoin": "FIL",
-          "hedera": "HBAR",
-      }
-      for key, val in data.items():
-        if key in mapping:
-          prices[mapping[key]] = float(val["usd"])
+      for coin in data:
+        symbol = coin.get("symbol", "")
+        if symbol.endswith("USDT"):
+          clean_symbol = symbol.replace("USDT", "")
+          prices[clean_symbol] = float(coin.get("price", 0))
       if prices:
+        print(f"✅ تم بنجاح جلب {len(prices)} عملة من Binance.")
         return prices
   except Exception as e:
-    print(f"خطأ في الاتصال بـ CoinGecko: {e}")
+    print(f"خطأ في Binance: {e}")
 
   return {}
 
@@ -79,18 +77,17 @@ def check_price_spikes():
 
   new_prices = fetch_crypto_prices()
   if not new_prices:
-    print("❌ فشل جلب الأسعار تماماً!")
-    # كتابة ملف تجريبي لضمان أن الـ Git يعمل ولن يتوقف الملف فارغاً
-    new_prices = {"TEST": 1.0}
+    print("❌ فشل جلب الأسعار تماماً من كافة المصادر!")
+    return
 
-  print(f"✅ تم جلب بنجاح {len(new_prices)} عملة.")
+  print(f"إجمالي العملات المخزنة في الدورة الحالية: {len(new_prices)}")
 
   alerts = []
   if old_prices:
     for symbol, price in new_prices.items():
       if symbol in old_prices:
         old_price = old_prices[symbol]
-        if old_price > 0 and symbol != "TEST":
+        if old_price > 0:
           change_pct = ((price - old_price) / old_price) * 100
           if abs(change_pct) >= THRESHOLD_PERCENT:
             direction = "🚀 صعود" if change_pct > 0 else "🔻 هبوط"
@@ -100,10 +97,10 @@ def check_price_spikes():
                 f" الحالي: `${price:,.4f}`"
             )
 
-  # حفظ الأسعار الجديدة في الملف ليتغير محتواه ويستطيع الـ Git رفعه
+  # حفظ الأسعار الجديدة ليرفعها الـ Git تلقائياً
   with open(CACHE_FILE, "w") as f:
     json.dump(new_prices, f, indent=4)
-  print(f"تم تحديث وكتابة ملف {CACHE_FILE}")
+  print(f"تم تحديث وحفظ ملف {CACHE_FILE}")
 
   if alerts:
     msg = (
