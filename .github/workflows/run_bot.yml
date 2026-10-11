@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: write # إعطاء صلاحيات الكتابة لتعديل الملف
 
 jobs:
   run-bot:
@@ -25,3 +25,9 @@ jobs:
 
       - name: Run script
         run: python bot.py
+
+      - name: Commit and push price cache
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "Update price cache [skip ci]"
+          file_pattern: "prices_cache.json"
