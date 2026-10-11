@@ -6,11 +6,11 @@ TELEGRAM_TOKEN = "8748765412:AAG030Thdv4jFUcZ2LUT-Hso56pa2ldtF_s"
 CHAT_ID = "1991436401"
 CACHE_FILE = "prices_cache.json"
 
-# === استراتيجية الشروط الاحترافية ===
-THRESHOLD_PERCENT = 0.5  # رفعنا النسبة إلى 0.5% لتفادي الإزعاج والتركيز على الحركات الحقيقية القوية
-MIN_PRICE_FILTER = (
-    0.0001  # استبعاد العملات الرخيصة جداً (Scam/Dust) لتفادي التلاعب السعري
+# === إعدادات استراتيجية التغير النسبي ===
+THRESHOLD_PERCENT = (
+    0.5  # التنبيه عندما يتغير سعر العملة بنسبة 0.5% أو أكثر خلال 10 دقائق
 )
+MIN_PRICE_FILTER = 0.0001
 
 HEADERS = {
     "User-Agent": (
@@ -29,9 +29,21 @@ def send_telegram_message(message):
     print(f"خطأ في إرسال الرسالة: {e}")
 
 
+def get_btc_spot_price():
+  """جلب السعر الفوري للبيتكوين للطمأنة (Heartbeat)"""
+  url = "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT"
+  try:
+    res = requests.get(url, headers=HEADERS, timeout=5)
+    if res.status_code == 200:
+      return float(res.json().get("price", 0))
+  except Exception:
+    pass
+  return 0
+
+
 def fetch_crypto_prices():
+  # قائمة ضخمة وموسعة تضم أكثر من 150 عملة رقمية
   symbols = [
-      "BTC",
       "ETH",
       "BNB",
       "SOL",
@@ -168,6 +180,33 @@ def fetch_crypto_prices():
       "ACE",
       "NFP",
       "AI",
+      "XEM",
+      "LSK",
+      "ARDR",
+      "ZEN",
+      "XVG",
+      "SYS",
+      "FUN",
+      "STORJ",
+      "ANT",
+      "RLC",
+      "CVC",
+      "LOOM",
+      "SNT",
+      "POWR",
+      "BLZ",
+      "POLYX",
+      "OM",
+      "BICO",
+      "ID",
+      "CYBER",
+      "NTRN",
+      "ACE",
+      "COTI",
+      "PIVX",
+      "STRAX",
+      "VET",
+      "HOT",
   ]
 
   prices = {}
@@ -185,11 +224,21 @@ def fetch_crypto_prices():
           prices[sym] = price
     except Exception:
       pass
-
   return prices
 
 
-def check_price_spikes():
+def check_market_updates():
+  # 1. إرسال رسالة الاطمئنان وسعر البيتكوين الفوري أولاً في كل تشغيل
+  btc_price = get_btc_spot_price()
+  if btc_price > 0:
+    heartbeat_msg = (
+        f"🟢 **البوت يعمل بنجاح (فحص دوري)**\n"
+        f"👑 **سعر البيتكوين (BTC)**: `${btc_price:,.2f}`\n"
+        f"⚡ *النظام متصل ويراقب السوق بدقة.*"
+    )
+    send_telegram_message(heartbeat_msg)
+
+  # 2. فحص أسعار بقية العملات ورصد التغيرات النسبية
   old_prices = {}
   if os.path.exists(CACHE_FILE):
     try:
@@ -203,8 +252,6 @@ def check_price_spikes():
     print("❌ فشل جلب الأسعار تماماً!")
     return
 
-  print(f"إجمالي العملات المفلترة والمخزنة: {len(new_prices)}")
-
   alerts = []
   if old_prices:
     for symbol, price in new_prices.items():
@@ -213,9 +260,7 @@ def check_price_spikes():
         if old_price > 0:
           change_pct = ((price - old_price) / old_price) * 100
 
-          # تطبيق الاستراتيجية الاحترافية: فلترة حسب النسبة المئوية
           if abs(change_pct) >= THRESHOLD_PERCENT:
-            # تصنيف قوة الحركة (استراتيجية إضافية)
             if abs(change_pct) >= 2.0:
               status_icon = (
                   "🔥 **انفجار سعري قوي!**"
@@ -223,7 +268,9 @@ def check_price_spikes():
                   else "💥 **انهيار حاد!**"
               )
             else:
-              status_icon = "🚀 صعود ملحوظ" if change_pct > 0 else "🔻 هبوط ملحوظ"
+              status_icon = (
+                  "🚀 صعود ملحوظ" if change_pct > 0 else "🔻 هبوط ملحوظ"
+              )
 
             emoji = "🟢" if change_pct > 0 else "🔴"
             alerts.append(
@@ -234,19 +281,18 @@ def check_price_spikes():
   # حفظ الأسعار الجديدة للمقارنة القادمة
   with open(CACHE_FILE, "w") as f:
     json.dump(new_prices, f, indent=4)
-  print(f"تم تحديث وحفظ ملف {CACHE_FILE}")
 
-  # إرسال التنبيهات مقسمة ومنظمة باحترافية
+  # إرسال التنبيهات المرصودة مقسمة بدفعات مرتبة
   if alerts:
-    batch_size = 5  # جعل كل رسالة تحتوي على 5 تنبيهات واضحة ومركزة للتداول
+    batch_size = 5
     for i in range(0, len(alerts), batch_size):
       batch = alerts[i : i + batch_size]
       msg = (
-          f"📊 **تقرير استراتيجية السوق (دفعة {i // batch_size + 1})**\n\n"
+          f"📊 **تقرير حركة السوق (دفعة {i // batch_size + 1})**\n\n"
           + "\n\n-------------------\n\n".join(batch)
       )
       send_telegram_message(msg)
 
 
 if __name__ == "__main__":
-  check_price_spikes()
+  check_market_updates()
