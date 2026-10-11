@@ -2,8 +2,8 @@ name: Crypto Price Alert Bot
 
 on:
   schedule:
-    - cron: '*/10 * * * *' # يعمل تلقائياً كل 10-15 دقيقة
-  workflow_dispatch: # يتيح لك التشغيل اليدوي بضغط زر
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
 
 jobs:
   run-bot:
@@ -20,13 +20,19 @@ jobs:
       - name: Install dependencies
         run: pip install requests
 
-      - name: Restore/Save Price Cache
+      - name: Restore cached prices
         uses: actions/cache@v4
         with:
           path: prices_cache.json
-          key: crypto-price-cache-${{ github.run_id }}
+          key: crypto-cache-${{ github.run_number }}
           restore-keys: |
-            crypto-price-cache-
+            crypto-cache-
 
       - name: Run script
         run: python bot.py
+
+      - name: Save prices cache
+        uses: actions/cache@v4
+        with:
+          path: prices_cache.json
+          key: crypto-cache-${{ github.run_number }}
