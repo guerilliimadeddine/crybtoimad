@@ -25,28 +25,129 @@ def send_telegram_message(message):
 
 
 def fetch_crypto_prices():
-  # استخدام Binance API المباشر (سريع، مجاني، ولا يحظر سيرفرات غيتهاب)
-  url = "https://api.binance.com/api/v3/ticker/price"
-  try:
-    res = requests.get(url, headers=HEADERS, timeout=15)
-    print(f"Binance Status Code: {res.status_code}")
-    if res.status_code == 200:
-      data = res.json()
-      prices = {}
-      for coin in data:
-        symbol = coin.get("symbol", "")
-        # نأخذ العملات المرتبطة بـ USDT لجلب كل العملات الكبرى والمعروفة
-        if symbol.endswith("USDT"):
-          clean_symbol = symbol.replace("USDT", "")
-          price = float(coin.get("price", 0))
-          if price > 0:
-            prices[clean_symbol] = price
+  # قائمة مدمجة تضم أبرز 100 عملة رقمية
+  symbols = [
+      "BTC",
+      "ETH",
+      "BNB",
+      "SOL",
+      "XRP",
+      "ADA",
+      "DOGE",
+      "AVAX",
+      "TRX",
+      "LINK",
+      "DOT",
+      "UNI",
+      "LTC",
+      "NEAR",
+      "APT",
+      "ATOM",
+      "XLM",
+      "FIL",
+      "HBAR",
+      "RENDER",
+      "SUI",
+      "PEPE",
+      "SHIB",
+      "ICP",
+      "ARB",
+      "OP",
+      "INJ",
+      "TIA",
+      "GRT",
+      "STX",
+      "IMX",
+      "MKR",
+      "ALGO",
+      "RUNE",
+      "FET",
+      "THETA",
+      "FLOKI",
+      "WIF",
+      "BONK",
+      "SNX",
+      "AAVE",
+      "FTM",
+      "FLOW",
+      "SEI",
+      "EGLD",
+      "QNT",
+      "CHZ",
+      "CRV",
+      "SAND",
+      "MANA",
+      "AXS",
+      "GALA",
+      "ENJ",
+      "BAT",
+      "ZIL",
+      "KAVA",
+      "ROSE",
+      "AR",
+      "LDO",
+      "SSV",
+      "DYDX",
+      "OP",
+      "BLUR",
+      "PORTAL",
+      "PIXEL",
+      "PENDLE",
+      "IOST",
+      "ONE",
+      "ZRX",
+      "COMP",
+      "SUSHI",
+      "YFI",
+      "BAL",
+      "OCEAN",
+      "AGIX",
+      "JASMY",
+      "CKB",
+      "SC",
+      "DGB",
+      "RVN",
+      "IO",
+      "BCH",
+      "ETC",
+      "XMR",
+      "ZEC",
+      "DASH",
+      "NEO",
+      "EOS",
+      "XTZ",
+      "KSM",
+      "ONT",
+      "ICX",
+      "QTUM",
+      "WAVES",
+      "OMG",
+      "NEXO",
+      "HOT",
+      "PAXG",
+      "KNC",
+      "ANKR",
+  ]
 
-      if prices:
-        print(f"✅ تم بنجاح جلب {len(prices)} عملة من Binance.")
-        return prices
-  except Exception as e:
-    print(f"خطأ في الاتصال بـ Binance: {e}")
+  prices = {}
+  for sym in symbols:
+    try:
+      res = requests.get(
+          f"https://api.coinbase.com/v2/prices/{sym}-USD/spot",
+          headers=HEADERS,
+          timeout=4,
+      )
+      if res.status_code == 200:
+        data = res.json()
+        price = float(data.get("data", {}).get("amount", 0))
+        if price > 0:
+          prices[sym] = price
+    except Exception:
+      pass
+
+  if prices:
+    print(f"✅ تم بنجاح جلب {len(prices)} عملة من Coinbase.")
+    return prices
 
   return {}
 
