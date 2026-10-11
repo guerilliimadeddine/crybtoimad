@@ -1,10 +1,12 @@
 import json
 import os
+import time
 import requests
 
 TELEGRAM_TOKEN = "8748765412:AAG030Thdv4jFUcZ2LUT-Hso56pa2ldtF_s"
 CHAT_ID = "1991436401"
 CACHE_FILE = "prices_cache.json"
+HEARTBEAT_FILE = "heartbeat_cache.json"  # ملف لتتبع وقت آخر رسالة دورية للبيتكوين
 
 MIN_PRICE_FILTER = 0.0001
 
@@ -86,8 +88,34 @@ def fetch_advanced_strategy(symbol):
   return None
 
 
+def check_heartbeat(btc_price):
+  """إرسال رسالة اطمئنان وسعر البيتكوين كل 30 دقيقة تقريباً"""
+  current_time = time.time()
+  last_time = 0
+
+  if os.path.exists(HEARTBEAT_FILE):
+    try:
+      with open(HEARTBEAT_FILE, "r") as f:
+        data = json.load(f)
+        last_time = data.get("last_sent", 0)
+    except Exception:
+      pass
+
+  # 30 دقيقة = 1800 ثانية
+  if current_time - last_time >= 1800:
+    heartbeat_msg = (
+        f"🟢 **البوت يعمل بنجاح (فحص دوري)**\n"
+        f"👑 **سعر البيتكوين (BTC)**: `${btc_price:,.2f}`\n"
+        f"⚡ *النظام متصل ويراقب السوق بدقة.*"
+    )
+    send_telegram_message(heartbeat_msg)
+
+    # تحديث وقت آخر رسالة
+    with open(HEARTBEAT_FILE, "w") as f:
+      json.dump({"last_sent": current_time}, f)
+
+
 def check_strategy_signals():
-  # قائمة ضخمة تضم 150 عملة رقمية
   symbols = [
       "BTC",
       "ETH",
@@ -244,11 +272,17 @@ def check_strategy_signals():
   ]
 
   alerts = []
+  btc_current_price = 0
 
   for sym in symbols:
     data = fetch_advanced_strategy(sym)
     if data and data["price"] >= MIN_PRICE_FILTER:
       price = data["price"]
+
+      # حفظ سعر البيتكوين لاستخدامه في رسالة الاطمئنان
+      if sym == "BTC":
+        btc_current_price = price
+
       resistance = data["resistance"]
       rsi_curr = data["rsi_current"]
       rsi_prev = data["rsi_prev"]
@@ -271,6 +305,11 @@ def check_strategy_signals():
         )
         alerts.append(alert_msg)
 
+  # فحص إرسال رسالة الاطمئنان الدورية للبيتكوين كل نصف ساعة
+  if btc_current_price > 0:
+    check_heartbeat(btc_current_price)
+
+  # إرسال تنبيهات الصفقات إذا وجدت
   if alerts:
     for msg in alerts:
       send_telegram_message(msg)
